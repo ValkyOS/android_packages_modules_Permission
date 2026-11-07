@@ -103,6 +103,7 @@ import com.android.permissioncontroller.permission.utils.KotlinUtils;
 import com.android.permissioncontroller.permission.utils.PermissionMapping;
 import com.android.permissioncontroller.permission.utils.Utils;
 import com.android.permissioncontroller.permission.utils.v35.MultiDeviceUtils;
+import com.android.permissioncontroller.sscopes.StorageScopesUtils;
 import com.android.settingslib.widget.ExpressiveDesignEnabledProvider;
 
 import java.util.ArrayList;
@@ -1029,7 +1030,7 @@ public class GrantPermissionsActivity extends FragmentActivity
     }
 
 
-    // ValkyOS: Contact Scopes (GrapheneOS). Storage Scopes uses request code 100.
+    public static final int REQ_CODE_SETUP_STORAGE_SCOPES = 100;
     public static final int REQ_CODE_SETUP_CONTACT_SCOPES = 101;
 
     @Override
@@ -1040,6 +1041,13 @@ public class GrantPermissionsActivity extends FragmentActivity
                 recreate();
                 return;
             }
+        }
+
+        if (requestCode == REQ_CODE_SETUP_STORAGE_SCOPES) {
+            if (StorageScopesUtils.isStorageScopesEnabled(this, mTargetPackage)) {
+                setResultAndFinish();
+            }
+            return;
         }
 
         if (requestCode == REQ_CODE_SETUP_CONTACT_SCOPES) {

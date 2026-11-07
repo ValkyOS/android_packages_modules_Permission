@@ -6,6 +6,7 @@ import android.os.UserHandle
 import android.widget.Button
 import com.android.permissioncontroller.cscopes.ContactScopesLinks
 import com.android.permissioncontroller.permission.ui.GrantPermissionsActivity
+import com.android.permissioncontroller.sscopes.StorageScopesLinks
 
 abstract class ExtraPermissionLink {
     abstract fun isVisible(ctx: Context, groupName: String, packageName: String, user: UserHandle): Boolean
@@ -26,6 +27,7 @@ abstract class ExtraPermissionLink {
 }
 
 private val allExtraPermissionLinks = arrayOf(
+        StorageScopesLinks,
         ContactScopesLinks,
 )
 
