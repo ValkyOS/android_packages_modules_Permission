@@ -46,6 +46,8 @@ import android.app.KeyguardManager;
 import android.app.ecm.EnhancedConfirmationManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.AppPermissionUtils;
+import android.content.pm.GosPackageState;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
@@ -85,8 +87,11 @@ import androidx.lifecycle.Lifecycle;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.permissioncontroller.DeviceUtils;
 import com.android.permissioncontroller.R;
+import com.android.permissioncontroller.cscopes.ContactScopesUtils;
 import com.android.permissioncontroller.ecm.EnhancedConfirmationStatsLogUtils;
+import com.android.permissioncontroller.permission.model.livedatatypes.LightPermGroupInfo;
 import com.android.permissioncontroller.permission.ui.auto.GrantPermissionsAutoViewHandler;
+import com.android.permissioncontroller.permission.ui.handheld.ExtraPermissionLinkKt;
 import com.android.permissioncontroller.permission.ui.model.DenyButton;
 import com.android.permissioncontroller.permission.ui.model.GrantPermissionsViewModel;
 import com.android.permissioncontroller.permission.ui.model.GrantPermissionsViewModel.RequestInfo;
@@ -128,7 +133,7 @@ public class GrantPermissionsActivity extends FragmentActivity
 
     public static final String ANNOTATION_ID = "link";
 
-    public static final int NEXT_BUTTON = 15;
+    public static final int NEXT_BUTTON = 16;
     public static final int ALLOW_BUTTON = 0;
     public static final int ALLOW_ALWAYS_BUTTON = 1; // Used in auto
     public static final int ALLOW_FOREGROUND_BUTTON = 2;
@@ -145,6 +150,7 @@ public class GrantPermissionsActivity extends FragmentActivity
     // button to cancel a request for more data with a picker
     public static final int DONT_ALLOW_MORE_SELECTED_BUTTON = 13;
     public static final int LINK_TO_PERMISSION_RATIONALE = 14;
+    public static final int EXTRA_BUTTON_1 = 15;
 
     public static final int NEXT_LOCATION_DIALOG = 6;
     public static final int LOCATION_ACCURACY_LAYOUT = 0;
@@ -363,12 +369,20 @@ public class GrantPermissionsActivity extends FragmentActivity
             return;
         }
 
+        List<String> requestedPermissionsForViewModel = filterRequestedPermissionsForViewModel(
+                mTargetPackage, mRequestedPermissions);
+        if (requestedPermissionsForViewModel.isEmpty()) {
+            mForceResultDelivery = true;
+            setResultAndFinish();
+            return;
+        }
+
         GrantPermissionsViewModelFactory factory =
                 new GrantPermissionsViewModelFactory(
                         getApplication(),
                         mTargetPackage,
                         mTargetDeviceId,
-                        mRequestedPermissions,
+                        requestedPermissionsForViewModel,
                         mSystemRequestedPermissions,
                         mSessionId,
                         icicle);
@@ -423,7 +437,7 @@ public class GrantPermissionsActivity extends FragmentActivity
                     .setResultListener(this);
         } else {
             mViewHandler = new com.android.permissioncontroller.permission.ui.handheld
-                    .GrantPermissionsViewHandlerImpl(this, this);
+                    .GrantPermissionsViewHandlerImpl(this, mTargetPackage, this);
         }
 
         if (!mDelegated) {
@@ -828,7 +842,7 @@ public class GrantPermissionsActivity extends FragmentActivity
             setTitle(message);
         }
 
-        mButtonVisibilities = getButtonsForPrompt(info.getPrompt(), info.getDeny(),
+        mButtonVisibilities = getButtonsForPrompt(info.getGroupInfo(), info.getPrompt(), info.getDeny(),
                 info.getShowRationale());
         mInitialPrompt = info.getPrompt();
 
@@ -888,7 +902,7 @@ public class GrantPermissionsActivity extends FragmentActivity
         };
     }
 
-    private boolean[] getButtonsForPrompt(Prompt prompt, DenyButton denyButton,
+    private boolean[] getButtonsForPrompt(LightPermGroupInfo groupInfo, Prompt prompt, DenyButton denyButton,
                                           boolean shouldShowRationale) {
         ArraySet<Integer> buttons = new ArraySet<>();
         switch (prompt) {
@@ -918,6 +932,12 @@ public class GrantPermissionsActivity extends FragmentActivity
         if (shouldShowRationale) {
             buttons.add(LINK_TO_PERMISSION_RATIONALE);
         }
+
+        if (ExtraPermissionLinkKt.getExtraPermissionLink(this, mTargetPackage, getUser(),
+                groupInfo.getName()) != null) {
+            buttons.add(EXTRA_BUTTON_1);
+        }
+
         return convertSetToBoolList(buttons, NEXT_BUTTON);
     }
 
@@ -1009,6 +1029,9 @@ public class GrantPermissionsActivity extends FragmentActivity
     }
 
 
+    // ValkyOS: Contact Scopes (GrapheneOS). Storage Scopes uses request code 100.
+    public static final int REQ_CODE_SETUP_CONTACT_SCOPES = 101;
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -1017,6 +1040,13 @@ public class GrantPermissionsActivity extends FragmentActivity
                 recreate();
                 return;
             }
+        }
+
+        if (requestCode == REQ_CODE_SETUP_CONTACT_SCOPES) {
+            if (ContactScopesUtils.isContactScopesEnabled(mTargetPackage, getUser())) {
+                setResultAndFinish();
+            }
+            return;
         }
         if (requestCode != APP_PERMISSION_REQUEST_CODE
                 && requestCode != PHOTO_PICKER_REQUEST_CODE) {
@@ -1188,11 +1218,18 @@ public class GrantPermissionsActivity extends FragmentActivity
             String[] resultPermissions = mOriginalRequestedPermissions;
             int[] grantResults = new int[resultPermissions.length];
 
-            if ((mDelegated || (mViewModel != null && mViewModel.shouldReturnPermissionState()))
+            if (mForceResultDelivery || (mDelegated || (mViewModel != null && mViewModel.shouldReturnPermissionState()))
                     && mTargetPackage != null) {
+                GosPackageState ps = GosPackageState.get(mTargetPackage, getUser());
                 for (int i = 0; i < resultPermissions.length; i++) {
                     String permission = resultPermissions[i];
                     grantResults[i] = mPackageManager.checkPermission(permission, mTargetPackage);
+
+                    if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                        if (AppPermissionUtils.shouldSpoofPermissionRequestResult(ps, permission)) {
+                            grantResults[i] = PackageManager.PERMISSION_GRANTED;
+                        }
+                    }
                 }
             } else {
                 grantResults = new int[0];
@@ -1384,5 +1421,15 @@ public class GrantPermissionsActivity extends FragmentActivity
                 "Permission Rationale does not support %s", permissionGroupName);
 
         return R.string.permission_rationale_message_location;
+    }
+
+    private boolean mForceResultDelivery;
+
+    private List<String> filterRequestedPermissionsForViewModel(String packageName, List<String> requestedPermissions) {
+        GosPackageState ps = GosPackageState.get(packageName, getUser());
+
+        return requestedPermissions.stream()
+                .filter(perm -> !AppPermissionUtils.shouldSkipPermissionRequestDialog(ps, perm))
+                .toList();
     }
 }

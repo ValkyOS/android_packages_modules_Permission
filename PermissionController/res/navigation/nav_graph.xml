@@ -189,4 +189,10 @@
         android:id="@+id/app_data_sharing_updates"
         android:name="com.android.permissioncontroller.permission.ui.handheld.v34.AppDataSharingUpdatesWrapperFragment"
         android:label="AppDataSharingUpdates"/>
+
+    <fragment
+        android:id="@+id/contact_scopes"
+        android:name="com.android.permissioncontroller.cscopes.ContactScopesWrapperFragment"
+        android:label="ContactScopes"/>
+
 </navigation>
